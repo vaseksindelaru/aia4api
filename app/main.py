@@ -1,10 +1,14 @@
-# app/main.py
-
 from fastapi import FastAPI
-from app.routes import detection, eval_grid, eval_rebound
+from app.routes import calculate_vwap, detect_candlesticks, detect_rebound, eval_GB, eval_grid
+
+
+
 
 app = FastAPI()
 
-app.include_router(detection.router)
+# Registrar las rutas
+app.include_router(calculate_vwap.router)
+app.include_router(detect_candlesticks.router)
+app.include_router(detect_rebound.router)
+app.include_router(eval_GB.router)
 app.include_router(eval_grid.router)
-app.include_router(eval_rebound.router)
