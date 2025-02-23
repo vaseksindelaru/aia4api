@@ -1,6 +1,5 @@
 import pandas as pd
 
-
 def detect_candlesticks(data, volume_window=5, height_window=5):
     df = pd.DataFrame(data)
     df['Total_Height'] = df['high'] - df['low']
