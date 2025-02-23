@@ -1,6 +1,5 @@
 from sqlalchemy import create_engine, Column, Integer, Float, String, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 from sklearn.cluster import KMeans
 import pandas as pd
 import numpy as np
@@ -21,26 +20,36 @@ class DataAgent:
         self.tables = {}
 
     def analyze_data(self, data):
-        df = pd.DataFrame(calculate_vwap(data))
-        df['Spread'] = df['high'] - df['low']
-        candlesticks = detect_candlesticks(df)
-        df_filtered = pd.DataFrame(candlesticks)
-        df_filtered['Candle_Type'] = np.where(df_filtered['close'] > df_filtered['open'], 'Bullish', 'Bearish')
-        df_filtered['Rebound_Success'] = [evaluar_rebote(df, i) for i in range(len(df_filtered))]
-        X = df_filtered[self.features]
-        
-        response = requests.post(
-            "http://localhost:8000/optimize_clusters/",
-            json={"data": X.to_dict(orient='records'), "max_clusters": self.max_clusters}
-        )
-        if response.status_code != 200:
-            raise Exception("Error al optimizar clústeres")
-        optimal_k = response.json()["optimal_clusters"]
-        
-        self.model = KMeans(n_clusters=optimal_k, random_state=42)
-        self.model.fit(X)
-        df_filtered['Cluster'] = self.model.labels_
-        return df_filtered
+        try:
+            df = pd.DataFrame(calculate_vwap(data))
+            df['Spread'] = df['high'] - df['low']
+            candlesticks = detect_candlesticks(df)
+            df_filtered = pd.DataFrame(candlesticks)
+            if df_filtered.empty:
+                return pd.DataFrame(columns=self.features + ['Rebound_Success', 'Cluster'])  # Devolver DataFrame vacío si no hay candlesticks
+            df_filtered['Candle_Type'] = np.where(df_filtered['close'] > df_filtered['open'], 'Bullish', 'Bearish')
+            df_filtered['Rebound_Success'] = [evaluar_rebote(df, i) for i in range(len(df_filtered))]
+            X = df_filtered[self.features]
+            
+            try:
+                response = requests.post(
+                    "http://localhost:8000/optimize_clusters/",
+                    json={"data": X.to_dict(orient='records'), "max_clusters": self.max_clusters},
+                    timeout=5
+                )
+                response.raise_for_status()
+                optimal_k = response.json()["optimal_clusters"]
+            except requests.RequestException as e:
+                print(f"Error al contactar optimize_clusters: {e}. Usando fallback.")
+                optimal_k = min(self.max_clusters, X.shape[0]) or 1  # Asegurar al menos 1 clúster
+
+            self.model = KMeans(n_clusters=optimal_k, random_state=42)
+            self.model.fit(X)
+            df_filtered['Cluster'] = self.model.labels_
+            return df_filtered
+        except Exception as e:
+            print(f"Error en analyze_data: {e}")
+            raise
 
     def define_table(self, cluster_id, features):
         class DynamicTable(Base):
